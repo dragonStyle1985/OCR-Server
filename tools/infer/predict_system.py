@@ -257,11 +257,11 @@ def main(args):
 if __name__ == "__main__":
 
     # 获取脚本所在目录的路径
-    # script_dir = os.path.dirname(os.path.abspath(__file__))
-    # project_root = os.path.abspath(os.path.join(script_dir, os.pardir, os.pardir, os.pardir))
-    #
-    # # 改变当前工作目录
-    # os.chdir(project_root)
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.abspath(os.path.join(script_dir, os.pardir, os.pardir))
+
+    # 改变当前工作目录
+    os.chdir(project_root)
 
     args = utility.parse_args()
     if args.use_mp:
