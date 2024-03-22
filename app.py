@@ -17,11 +17,14 @@ def ocr():
     if not image_url:
         return jsonify({'error': 'Missing image_url parameter'}), 400
 
-    response = requests.get(image_url)
-
-    # 检查请求是否成功
-    if response.status_code == 200:
-
+    image_path = ''
+    response = None
+    if os.path.isabs(image_url):
+        # 处理本地文件
+        if os.path.exists(image_url):
+            image_path = image_url
+    else:
+        response = requests.get(image_url)
         # 从URL中解析出文件名，进而得到文件扩展名
         parsed_url = urlparse(image_url)
         _, file_ext = os.path.splitext(parsed_url.path)
@@ -30,9 +33,13 @@ def ocr():
         if not file_ext.startswith('.'):
             file_ext = '.jpg'  # 默认后缀，如果无法从URL中获取扩展名
 
-        with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as temp_file:
-            temp_file.write(response.content)
-            image_path = temp_file.name
+        if response.status_code == 200:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as temp_file:
+                temp_file.write(response.content)
+                image_path = temp_file.name
+
+    # 检查请求是否成功
+    if response is None or response.status_code == 200:
 
         # 这里调整为你的 OCR 脚本所在路径
         ocr_script_path = os.path.join(os.getcwd(), 'tools/infer/predict_system.py')
@@ -97,7 +104,7 @@ def ocr():
             "results": results_list
         }
 
-        # 返回JSON响应
+        print(ocr_json)
         return jsonify(ocr_json)
     else:
         print("Failed to download file")
