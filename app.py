@@ -8,6 +8,8 @@ import tempfile
 from flask import Flask, request, jsonify
 from urllib.parse import urlparse
 
+from config import HIDDEN_PATH
+
 app = Flask(__name__)
 
 
@@ -19,6 +21,8 @@ def ocr():
 
     image_path = ''
     response = None
+
+    image_url = image_url.replace(HIDDEN_PATH, "")
     if os.path.isabs(image_url):
         # 处理本地文件
         if os.path.exists(image_url):
@@ -58,8 +62,7 @@ def ocr():
         result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='ignore')
         ocr_output = result.stdout
 
-        # 删除临时文件
-        os.remove(image_path)
+        # 这里不要删除文件，文件可能还需要供其它服务调用。
 
         # 定义正则表达式，用于提取dt_boxes数量和处理时间
         dt_boxes_pattern = re.compile(r"dt_boxes num : (\d+), elapsed : (\d+\.\d+)")
@@ -97,7 +100,6 @@ def ocr():
         results = result_pattern.findall(ocr_output)
         results_list = [{"text": result[0], "confidence": result[1]} for result in results]
 
-        # 构建JSON对象
         ocr_json = {
             "boxes_num": dt_boxes_num,
             "predict_time": predict_time,
