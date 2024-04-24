@@ -148,7 +148,7 @@ def main(args):
     image_file_list = get_image_file_list(args.image_dir)
     image_file_list = image_file_list[args.process_id::args.total_process_num]
     text_sys = TextSystem(args)
-    is_visualize = True
+    is_visualize = False  # Windows系统这里可以设为True
     font_path = args.vis_font_path
     drop_score = args.drop_score
     draw_img_save_dir = args.draw_img_save_dir
@@ -230,13 +230,11 @@ def main(args):
                 if flag_gif:
                     save_file = image_file[:-3] + "png"
                 elif flag_pdf:
-                    save_file = image_file.replace('.pdf',
-                                                   '_' + str(index) + '.png')
+                    save_file = image_file.replace('.pdf', '_' + str(index) + '.png')
                 else:
                     save_file = image_file
                 cv2.imwrite(
-                    os.path.join(draw_img_save_dir,
-                                 os.path.basename(save_file)),
+                    os.path.join(draw_img_save_dir, os.path.basename(save_file)),
                     draw_img[:, :, ::-1])
                 logger.debug("The visualized image saved in {}".format(
                     os.path.join(draw_img_save_dir, os.path.basename(
@@ -255,6 +253,8 @@ def main(args):
 
 
 if __name__ == "__main__":
+    # --image_dir="resources/imgs/11.jpg" --det_model_dir="inference/ch_ppocr_mobile_v2.0_det_infer/"  --rec_model_dir="inference/ch_ppocr_mobile_v2.0_rec_infer/" --cls_model_dir="inference/ch_ppocr_mobile_v2.0_cls_infer/" --use_angle_cls=True --use_space_char=True
+    # --image_dir="resources/imgs/11.jpg" --det_model_dir="inference/ch_PP-OCRv3_det_infer/" --rec_model_dir="inference/ch_PP-OCRv3_rec_infer/" --cls_model_dir="inference/ch_ppocr_mobile_v2.0_cls_infer/" --use_angle_cls=True --use_space_char=True
 
     # 获取脚本所在目录的路径
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -263,10 +263,14 @@ if __name__ == "__main__":
     # 改变当前工作目录
     os.chdir(project_root)
 
+    time1 = time.time()
+
     args = utility.parse_args()
     if args.use_mp:
         p_list = []
         total_process_num = args.total_process_num
+
+        print('predict_system.py', 'total_process_num', total_process_num)
         for process_id in range(total_process_num):
             cmd = [sys.executable, "-u"] + sys.argv + [
                 "--process_id={}".format(process_id),
@@ -274,9 +278,15 @@ if __name__ == "__main__":
             ]
             p = subprocess.Popen(cmd, stdout=sys.stdout, stderr=sys.stdout)
             p_list.append(p)
+
+        print('predict_system.py', 'p_list', p_list)
         for p in p_list:
             p.wait()
     else:
+        print('args', args)
         main(args)
 
-    input("Press Enter to exit...")
+    time2 = time.time()
+    print(f'OCR指令执行时间： {time2 - time1}秒')
+
+    # input("Press Enter to exit...")

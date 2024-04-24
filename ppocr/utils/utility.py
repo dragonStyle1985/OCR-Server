@@ -74,6 +74,7 @@ def get_image_file_list(img_file):
     imgs_lists = sorted(imgs_lists)
     return imgs_lists
 
+
 def binarize_img(img):
     if len(img.shape) == 3 and img.shape[2] == 3:
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) # conversion to grayscale image
@@ -81,6 +82,7 @@ def binarize_img(img):
         _, gray = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         img = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
     return img
+
 
 def alpha_to_color(img, alpha_color=(255, 255, 255)):
     if len(img.shape) == 3 and img.shape[2] == 4:
@@ -93,6 +95,7 @@ def alpha_to_color(img, alpha_color=(255, 255, 255)):
 
         img = cv2.merge((B, G, R))
     return img
+
 
 def check_and_read(img_path):
     if os.path.basename(img_path)[-3:].lower() == 'gif':
