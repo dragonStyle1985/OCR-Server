@@ -152,8 +152,8 @@ def save_docx_images():
     docx_path = content['file_path']
     output_dir = content['output_dir']
 
-    # print('docx_path', docx_path)
-    # print('output_dir', output_dir)
+    print('docx_path', docx_path)
+    print('output_dir', output_dir)
 
     # 确保输出目录存在
     if not os.path.exists(output_dir):
@@ -165,7 +165,7 @@ def save_docx_images():
         with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as temp_file:
             temp_file.write(response.content)
             docx_file_path = temp_file.name
-            # print('docx_file_path', docx_file_path)
+            print('docx_file_path', docx_file_path)
 
         # 加载文档
         docx = Document(docx_file_path)
@@ -178,7 +178,7 @@ def save_docx_images():
                 image_extension = os.path.splitext(rel.target_ref)[1]
                 image_filename = f"{rel_id}{image_extension}"
                 image_path = os.path.join(output_dir, image_filename)
-                # print('image_path', image_path)
+                print('image_path', image_path)
 
                 with open(image_path, 'wb') as img_file:
                     img_file.write(image_blob)
