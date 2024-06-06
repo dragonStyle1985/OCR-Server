@@ -2,6 +2,7 @@ import json
 import os
 import time
 
+import cv2
 import numpy as np
 import requests
 import subprocess
@@ -120,6 +121,14 @@ def ocr():
             return jsonify({'error': 'Failed to download image from URL'}), response.status_code
 
     try:
+
+        image = cv2.imread(image_path)
+        if image is None:
+            return jsonify({'error': 'Failed to read image'}), 500
+
+        height, width = image.shape[:2]
+        print(f'Image dimension: {width}x{height}')
+
         result, predict_time = process_images(
             text_sys,
             image_dir=image_path,
@@ -134,9 +143,11 @@ def ocr():
         parsed_results = parse_ocr_results(result)
         results = parsed_results[0]['results']
         ocr_json = {
+            "width": width,
+            "height": height,
             "boxes_num": len(results),
             "predict_time": predict_time,
-            "results": parsed_results[0]['results']
+            "results": results
         }
         return jsonify(ocr_json), 200
 
@@ -167,26 +178,29 @@ def save_docx_images():
             docx_file_path = temp_file.name
             print('docx_file_path', docx_file_path)
 
-        # 加载文档
-        docx = Document(docx_file_path)
+        try:
+            # 加载文档
+            docx = Document(docx_file_path)
+            rels = docx.part.rels
+            images_saved = []
 
-        rels = docx.part.rels
-        images_saved = []
-        for rel_id, rel in rels.items():
-            if "image" in rel.reltype:
-                image_blob = rel.target_part.blob
-                image_extension = os.path.splitext(rel.target_ref)[1]
-                image_filename = f"{rel_id}{image_extension}"
-                image_path = os.path.join(output_dir, image_filename)
-                print('image_path', image_path)
+            for rel_id, rel in rels.items():
+                if "image" in rel.reltype:
+                    image_blob = rel.target_part.blob
+                    image_extension = os.path.splitext(rel.target_ref)[1]
+                    image_filename = f"{rel_id}{image_extension}"
+                    image_path = os.path.join(output_dir, image_filename)
+                    print('image_path', image_path)
+                    with open(image_path, 'wb') as img_file:
+                        img_file.write(image_blob)
+                    images_saved.append(image_path)
 
-                with open(image_path, 'wb') as img_file:
-                    img_file.write(image_blob)
-                images_saved.append(image_path)
-
-        # 删除临时文件
-        os.remove(docx_file_path)
-        return jsonify({"message": "Images saved successfully", "images": images_saved})
+            # 删除临时文件
+            os.remove(docx_file_path)
+            return jsonify({"message": "Images saved successfully", "images": images_saved})
+        except Exception as e:
+            print(f"Load fail: {e}")
+            return jsonify({"message": "Failed to load the docx file"}), 400
     else:
         return jsonify({"message": "Failed to download the docx file"}), 400
 
