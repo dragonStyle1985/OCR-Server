@@ -1,5 +1,9 @@
 # OCR-Server
 
+## 构建镜像
+> docker build -t ocr-server .<br>
+> docker save -o ocr-server.tar ocr-server
+
 ## CUDA安装测试
 > import paddle<br>
   paddle.utils.run_check()
