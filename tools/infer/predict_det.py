@@ -190,10 +190,10 @@ class TextDetector(object):
             points[pno, 1] = int(min(max(points[pno, 1], 0), img_height - 1))
         return points
 
-    def filter_tag_det_res(self, dt_boxes, image_shape):
+    def filter_tag_det_res(self, dt_boxes_, image_shape):
         img_height, img_width = image_shape[0:2]
         dt_boxes_new = []
-        for box in dt_boxes:
+        for box in dt_boxes_:
             if type(box) is list:
                 box = np.array(box)
             box = self.order_points_clockwise(box)
@@ -203,85 +203,90 @@ class TextDetector(object):
             if rect_width <= 3 or rect_height <= 3:
                 continue
             dt_boxes_new.append(box)
-        dt_boxes = np.array(dt_boxes_new)
-        return dt_boxes
+        dt_boxes_ = np.array(dt_boxes_new)
+        return dt_boxes_
 
-    def filter_tag_det_res_only_clip(self, dt_boxes, image_shape):
+    def filter_tag_det_res_only_clip(self, dt_boxes_, image_shape):
         img_height, img_width = image_shape[0:2]
         dt_boxes_new = []
-        for box in dt_boxes:
+        for box in dt_boxes_:
             if type(box) is list:
                 box = np.array(box)
             box = self.clip_det_res(box, img_height, img_width)
             dt_boxes_new.append(box)
-        dt_boxes = np.array(dt_boxes_new)
-        return dt_boxes
+        dt_boxes_ = np.array(dt_boxes_new)
+        return dt_boxes_
 
-    def __call__(self, img):
-        ori_im = img.copy()
-        data = {'image': img}
+    def __call__(self, img_):
+        try:
+            ori_im = img_.copy()
+            data = {'image': img_}
 
-        st = time.time()
+            st_ = time.time()
 
-        if self.args.benchmark:
-            self.autolog.times.start()
+            if self.args.benchmark:
+                self.autolog.times.start()
 
-        data = transform(data, self.preprocess_op)
-        img, shape_list = data
-        if img is None:
-            return None, 0
-        img = np.expand_dims(img, axis=0)
-        shape_list = np.expand_dims(shape_list, axis=0)
-        img = img.copy()
+            data = transform(data, self.preprocess_op)
+            img_, shape_list = data
+            if img_ is None:
+                return None, 0
+            img_ = np.expand_dims(img_, axis=0)
+            shape_list = np.expand_dims(shape_list, axis=0)
+            img_ = img_.copy()
 
-        if self.args.benchmark:
-            self.autolog.times.stamp()
-        if self.use_onnx:
-            input_dict = {}
-            input_dict[self.input_tensor.name] = img
-            outputs = self.predictor.run(self.output_tensors, input_dict)
-        else:
-            self.input_tensor.copy_from_cpu(img)
-            self.predictor.run()
-            outputs = []
-            for output_tensor in self.output_tensors:
-                output = output_tensor.copy_to_cpu()
-                outputs.append(output)
             if self.args.benchmark:
                 self.autolog.times.stamp()
+            if self.use_onnx:
+                input_dict = {}
+                input_dict[self.input_tensor.name] = img_
+                outputs = self.predictor.run(self.output_tensors, input_dict)
+            else:
+                self.input_tensor.copy_from_cpu(img_)
+                self.predictor.run()
+                outputs = []
+                for output_tensor in self.output_tensors:
+                    output = output_tensor.copy_to_cpu()
+                    outputs.append(output)
+                if self.args.benchmark:
+                    self.autolog.times.stamp()
 
-        preds = {}
-        if self.det_algorithm == "EAST":
-            preds['f_geo'] = outputs[0]
-            preds['f_score'] = outputs[1]
-        elif self.det_algorithm == 'SAST':
-            preds['f_border'] = outputs[0]
-            preds['f_score'] = outputs[1]
-            preds['f_tco'] = outputs[2]
-            preds['f_tvo'] = outputs[3]
-        elif self.det_algorithm in ['DB', 'PSE', 'DB++']:
-            preds['maps'] = outputs[0]
-        elif self.det_algorithm == 'FCE':
-            for i, output in enumerate(outputs):
-                preds['level_{}'.format(i)] = output
-        elif self.det_algorithm == "CT":
-            preds['maps'] = outputs[0]
-            preds['score'] = outputs[1]
-        else:
-            raise NotImplementedError
+            preds = {}
+            if self.det_algorithm == "EAST":
+                preds['f_geo'] = outputs[0]
+                preds['f_score'] = outputs[1]
+            elif self.det_algorithm == 'SAST':
+                preds['f_border'] = outputs[0]
+                preds['f_score'] = outputs[1]
+                preds['f_tco'] = outputs[2]
+                preds['f_tvo'] = outputs[3]
+            elif self.det_algorithm in ['DB', 'PSE', 'DB++']:
+                preds['maps'] = outputs[0]
+            elif self.det_algorithm == 'FCE':
+                for i, output in enumerate(outputs):
+                    preds['level_{}'.format(i)] = output
+            elif self.det_algorithm == "CT":
+                preds['maps'] = outputs[0]
+                preds['score'] = outputs[1]
+            else:
+                raise NotImplementedError
 
-        post_result = self.postprocess_op(preds, shape_list)
-        dt_boxes = post_result[0]['points']
+            post_result = self.postprocess_op(preds, shape_list)
+            dt_boxes = post_result[0]['points']
 
-        if self.args.det_box_type == 'poly':
-            dt_boxes = self.filter_tag_det_res_only_clip(dt_boxes, ori_im.shape)
-        else:
-            dt_boxes = self.filter_tag_det_res(dt_boxes, ori_im.shape)
+            if self.args.det_box_type == 'poly':
+                dt_boxes = self.filter_tag_det_res_only_clip(dt_boxes, ori_im.shape)
+            else:
+                dt_boxes = self.filter_tag_det_res(dt_boxes, ori_im.shape)
 
-        if self.args.benchmark:
-            self.autolog.times.end(stamp=True)
-        et = time.time()
-        return dt_boxes, et - st
+            if self.args.benchmark:
+                self.autolog.times.end(stamp=True)
+            et = time.time()
+            return dt_boxes, et - st_
+
+        except Exception as e:
+            logger.error(f"Error during detection: {e}")
+            return None, 0
 
 
 if __name__ == "__main__":
