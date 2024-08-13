@@ -15,7 +15,7 @@ from flask import Flask, request, jsonify
 from urllib.parse import urlparse
 
 from tools.infer.predict_system import TextSystem
-from util import process_images
+from util import process_images, get_image_from_minio
 
 app = Flask(__name__)
 
@@ -76,52 +76,70 @@ def ocr():
     测试方法：
     http://127.0.0.1:4101/ocr
     在Body中填入
-    {"image_url": "E:/1.jpg"}
+    {
+        "image_url": "E:/1.jpg",
+        "source_type": "minio"  # "local" for local storage
+    }
     cv2.imread不支持中文路径
     :return:
     """
-    print(1, request.json)
+    print("Headers:\n", request.headers)  # 打印请求头
+    if request.is_json:
+        print("Request is JSON")
+    else:
+        print("Request is NOT JSON")
+
+    print('request.json', request.json)
     image_url = request.json.get('image_url')
+    source_type = request.json.get('source_type', 'minio')
+    print('source_type', source_type)
 
     if not image_url:
         return jsonify({'error': 'Missing image_url parameter'}), 400
 
     time1 = time.time()
 
-    image_url = image_url.replace(HIDDEN_PATH, "")
-    print(2, image_url)
-    if os.path.isabs(image_url):
-        print(3)
-        # 处理本地文件
-        if os.path.exists(image_url):
-            image_path = image_url
+    image_path = None
+
+    if source_type == 'local':
+        # 处理本地路径的逻辑
+        image_url = image_url.replace(HIDDEN_PATH, "")
+        print('image_url', image_url)
+        if os.path.isabs(image_url):
+            # 处理本地文件
+            if os.path.exists(image_url):
+                image_path = image_url
+            else:
+                return jsonify({'error': 'File not found on server'}), 404
         else:
-            return jsonify({'error': 'File not found on server'}), 404
-    else:
-        print(4)
-        response = requests.get(image_url)
-        # 从URL中解析出文件名，进而得到文件扩展名
-        parsed_url = urlparse(image_url)
-        print(5, parsed_url)
-        _, file_ext = os.path.splitext(parsed_url.path)
+            response = requests.get(image_url)
+            # 从URL中解析出文件名，进而得到文件扩展名
+            parsed_url = urlparse(image_url)
+            print('parsed_url', parsed_url)
+            _, file_ext = os.path.splitext(parsed_url.path)
 
-        # 确保文件扩展名以"."开始，且不为空。如果为空，默认为.jpg
-        if not file_ext.startswith('.'):
-            file_ext = '.jpg'  # 默认后缀，如果无法从URL中获取扩展名
+            # 确保文件扩展名以"."开始，且不为空。如果为空，默认为.jpg
+            if not file_ext.startswith('.'):
+                file_ext = '.jpg'  # 默认后缀，如果无法从URL中获取扩展名
 
-        print(6, response.status_code)
-
-        if response.status_code == 200:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as temp_file:
-                temp_file.write(response.content)
-                image_path = temp_file.name
-
-                print(7, image_path)
+            if response.status_code == 200:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as temp_file:
+                    temp_file.write(response.content)
+                    image_path = temp_file.name
+                    print('image_path', image_path)
+            else:
+                return jsonify({'error': 'Failed to download image from URL'}), response.status_code
+    elif source_type == 'minio':
+        print('image_url', image_url)
+        image_path = get_image_from_minio(image_url)
+        if image_path and os.path.exists(image_path):
+            print(f"Image exists at {image_path}")
+            print(f"File size: {os.path.getsize(image_path)} bytes")
         else:
-            return jsonify({'error': 'Failed to download image from URL'}), response.status_code
+            print(f"Image file does not exist at {image_path}")
+            return jsonify({'error': 'Image file not found'}), 404
 
     try:
-
         image = cv2.imread(image_path)
         if image is None:
             return jsonify({'error': 'Failed to read image'}), 500
@@ -142,6 +160,8 @@ def ocr():
 
         parsed_results = parse_ocr_results(result)
         results = parsed_results[0]['results']
+        print('results', results)
+
         ocr_json = {
             "width": width,
             "height": height,
@@ -149,6 +169,7 @@ def ocr():
             "predict_time": predict_time,
             "results": results
         }
+        print('ocr_json', ocr_json)
         return jsonify(ocr_json), 200
 
     except subprocess.CalledProcessError as e:

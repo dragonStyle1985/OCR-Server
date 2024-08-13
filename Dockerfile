@@ -33,13 +33,13 @@ EXPOSE 4101
 # Define environment variable
 ENV NAME Search-Server
 
-ENV EXPIRY_DATE="2024-08-07 11:30"
+ENV EXPIRY_DATE="2025-01-01 11:30"
 
 RUN echo '#!/bin/bash\n\
 current_date=$(date +"%Y-%m-%d %H:%M")\n\
 echo "Current date and time in container: $current_date"\n\
 expiry_date="$EXPIRY_DATE"\n\
-echo "Expiry date and time: $expiry_date"\n\
+# echo "Expiry date and time: $expiry_date"\n\
 if [[ "$current_date" > "$expiry_date" ]]; then\n\
     echo "This container has expired. Exiting..."\n\
     exit 1\n\
