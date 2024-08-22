@@ -1,4 +1,3 @@
-import json
 import os
 import time
 
@@ -15,7 +14,7 @@ from flask import Flask, request, jsonify
 from urllib.parse import urlparse
 
 from tools.infer.predict_system import TextSystem
-from util import process_images, get_image_from_minio
+from util import process_images, get_image_from_minio, parse_ocr_results
 
 app = Flask(__name__)
 
@@ -37,37 +36,6 @@ if args.warmup:
     img = np.random.uniform(0, 255, [640, 640, 3]).astype(np.uint8)
     for i in range(10):
         res = text_sys(img)
-
-
-def parse_ocr_results(results):
-    ocr_results = []
-
-    for result in results:
-        # 分割图片文件名和 JSON 字符串
-        if '\t' in result:
-            image_name, data_str = result.split('\t', 1)
-            try:
-                # 加载 JSON 数据
-                data = json.loads(data_str)
-
-                # 提取信息并构建结果列表
-                items = []
-                for item in data:
-                    transcription = item['transcription']
-                    points = item['points']
-                    score = item['score']
-                    items.append({"transcription": transcription, "points": points, "score": score})
-
-                # 构建最终的 JSON 对象
-                ocr_json = {
-                    "image_name": image_name,
-                    "results": items
-                }
-                ocr_results.append(ocr_json)
-            except json.JSONDecodeError:
-                print(f"Error decoding JSON from result associated with {image_name}")
-
-    return ocr_results
 
 
 @app.route('/ocr', methods=['POST'])
