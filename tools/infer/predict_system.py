@@ -22,16 +22,18 @@ sys.path.insert(0, os.path.abspath(os.path.join(__dir__, '../..')))
 os.environ["FLAGS_allocator_strategy"] = 'auto_growth'
 
 import cv2
-import copy
-import numpy as np
+import gc
 import json
-import time
 import logging
-from PIL import Image
+import numpy as np
+import time
+
 import tools.infer.utility as utility
 import tools.infer.predict_rec as predict_rec
 import tools.infer.predict_det as predict_det
 import tools.infer.predict_cls as predict_cls
+
+from PIL import Image
 from ppocr.utils.utility import get_image_file_list, check_and_read
 from ppocr.utils.logging import get_logger
 from tools.infer.utility import draw_ocr_box_txt, get_rotate_crop_image, get_minarea_rect_crop
@@ -68,55 +70,94 @@ class TextSystem(object):
         time_dict = {'det': 0, 'rec': 0, 'cls': 0, 'all': 0}
 
         if img is None:
-            logger.debug("no valid image provided")
+            logger.debug("No valid image provided")
             return None, None, time_dict
+
+        # Optional image downscaling to limit memory usage
+        max_size = 1024  # Define maximum allowed image dimension
+        height, width = img.shape[:2]
+        if max(height, width) > max_size:
+            scale_factor = max_size / max(height, width)
+            img = cv2.resize(img, (int(width * scale_factor), int(height * scale_factor)))
+            logger.debug(f"Resized image to {img.shape}")
 
         start = time.time()
         ori_im = img.copy()
-        dt_boxes, elapse = self.text_detector(img)
-        time_dict['det'] = elapse
 
-        if dt_boxes is None:
-            logger.debug("no dt_boxes found, elapsed : {}".format(elapse))
-            end = time.time()
-            time_dict['all'] = end - start
+        try:
+            dt_boxes, elapse = self.text_detector(img)
+            time_dict['det'] = elapse
+
+            if dt_boxes is None:
+                logger.debug(f"No dt_boxes found, elapsed: {elapse}")
+                time_dict['all'] = time.time() - start
+                return None, None, time_dict
+            else:
+                logger.debug(f"dt_boxes num: {len(dt_boxes)}, elapsed: {elapse}")
+        except Exception as e:
+            logger.error(f"Text detection failed: {e}")
+            gc.collect()
             return None, None, time_dict
-        else:
-            logger.debug("dt_boxes num : {}, elapsed : {}".format(
-                len(dt_boxes), elapse))
-        img_crop_list = []
 
+        img_crop_list = []
         dt_boxes = sorted_boxes(dt_boxes)
 
-        for bno in range(len(dt_boxes)):
-            tmp_box = copy.deepcopy(dt_boxes[bno])
-            if self.args.det_box_type == "quad":
-                img_crop = get_rotate_crop_image(ori_im, tmp_box)
-            else:
-                img_crop = get_minarea_rect_crop(ori_im, tmp_box)
-            img_crop_list.append(img_crop)
-        if self.use_angle_cls and cls:
-            img_crop_list, angle_list, elapse = self.text_classifier(
-                img_crop_list)
-            time_dict['cls'] = elapse
-            logger.debug("cls num  : {}, elapsed : {}".format(
-                len(img_crop_list), elapse))
+        # Cropping detected text regions
+        for bno, tmp_box in enumerate(dt_boxes):
+            try:
+                if self.args.det_box_type == "quad":
+                    img_crop = get_rotate_crop_image(ori_im, tmp_box)
+                else:
+                    img_crop = get_minarea_rect_crop(ori_im, tmp_box)
 
-        rec_res, elapse = self.text_recognizer(img_crop_list)
-        time_dict['rec'] = elapse
-        logger.debug("rec_res num  : {}, elapsed : {}".format(
-            len(rec_res), elapse))
+                img_crop_list.append(img_crop)
+                logger.debug(f"Cropped image {bno} successfully")
+            except Exception as e:
+                logger.error(f"Error cropping image {bno}: {e}")
+                gc.collect()
+                continue
+
+        logger.debug(f"Cropped {len(img_crop_list)} images, preparing for classification")
+
+        # Classify the cropped images (optional step)
+        if self.use_angle_cls and cls:
+            try:
+                img_crop_list, angle_list, elapse = self.text_classifier(img_crop_list)
+                time_dict['cls'] = elapse
+                logger.debug(f"Classified {len(img_crop_list)} images, elapsed: {elapse}")
+            except Exception as e:
+                logger.error(f"Classification failed: {e}")
+                gc.collect()
+                return None, None, time_dict
+
+        # Recognize text in cropped images
+        try:
+            rec_res, elapse = self.text_recognizer(img_crop_list)
+            time_dict['rec'] = elapse
+            logger.debug(f"rec_res num: {len(rec_res)}, elapsed: {elapse}")
+        except Exception as e:
+            logger.error(f"Text recognition failed: {e}")
+            gc.collect()
+            return None, None, time_dict
+
+        # Optionally save cropped images
         if self.args.save_crop_res:
-            self.draw_crop_rec_res(self.args.crop_res_save_dir, img_crop_list,
-                                   rec_res)
+            self.draw_crop_rec_res(self.args.crop_res_save_dir, img_crop_list, rec_res)
+
+        # Filter results based on score
         filter_boxes, filter_rec_res = [], []
         for box, rec_result in zip(dt_boxes, rec_res):
             text, score = rec_result
             if score >= self.drop_score:
                 filter_boxes.append(box)
                 filter_rec_res.append(rec_result)
+
         end = time.time()
         time_dict['all'] = end - start
+
+        # Perform garbage collection to release resources
+        gc.collect()
+
         return filter_boxes, filter_rec_res, time_dict
 
 
@@ -148,7 +189,7 @@ def main(args):
     image_file_list = get_image_file_list(args.image_dir)
     image_file_list = image_file_list[args.process_id::args.total_process_num]
     text_sys = TextSystem(args)
-    is_visualize = False  # Windows系统这里可以设为True
+    is_visualize = False
     font_path = args.vis_font_path
     drop_score = args.drop_score
     draw_img_save_dir = args.draw_img_save_dir
