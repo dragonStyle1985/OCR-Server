@@ -1,20 +1,23 @@
+import json
 import os
+import sys
 import time
 
 import cv2
 import numpy as np
+import psutil
 import requests
 import subprocess
 import tempfile
 import tools.infer.utility as utility
 
 from config import HIDDEN_PATH
+from datetime import datetime
 from docx import Document   # python-docx
 from flask import Flask, request, jsonify
-from urllib.parse import urlparse
-
 from tools.infer.predict_system import TextSystem
-from util import process_images, get_image_from_minio, parse_ocr_results
+from urllib.parse import urlparse
+from util import process_images, get_image_from_minio
 
 app = Flask(__name__)
 
@@ -38,20 +41,47 @@ if args.warmup:
         res = text_sys(img)
 
 
+def parse_ocr_results(results):
+    ocr_results = []
+
+    for result in results:
+        # 分割图片文件名和 JSON 字符串
+        if '\t' in result:
+            image_name, data_str = result.split('\t', 1)
+            try:
+                # 加载 JSON 数据
+                data = json.loads(data_str)
+
+                # 提取信息并构建结果列表
+                items = []
+                for item in data:
+                    transcription = item['transcription']
+                    points = item['points']
+                    score = item['score']
+                    items.append({"transcription": transcription, "points": points, "score": score})
+
+                # 构建最终的 JSON 对象
+                ocr_json = {
+                    "image_name": image_name,
+                    "results": items
+                }
+                ocr_results.append(ocr_json)
+            except json.JSONDecodeError:
+                print(f"Error decoding JSON from result associated with {image_name}")
+
+    return ocr_results
+
+
 @app.route('/ocr', methods=['POST'])
 def ocr():
     """
-    测试方法：
-    http://127.0.0.1:4101/ocr
-    在Body中填入
-    {
-        "image_url": "E:/1.jpg",
-        "source_type": "minio"  # "local" for local storage
-    }
-    cv2.imread不支持中文路径
+    example:
+    curl -X POST http://192.168.1.109:4101/ocr -H "Content-Type: application/json" -d '{"image_url": "/temp/11.jpg", "source_type": "nas"}'
     :return:
     """
     print("Headers:\n", request.headers)  # 打印请求头
+    sys.stdout.flush()
+
     if request.is_json:
         print("Request is JSON")
     else:
@@ -61,6 +91,7 @@ def ocr():
     image_url = request.json.get('image_url')
     source_type = request.json.get('source_type', 'minio')
     print('source_type', source_type)
+    sys.stdout.flush()
 
     if not image_url:
         return jsonify({'error': 'Missing image_url parameter'}), 400
@@ -69,26 +100,26 @@ def ocr():
 
     image_path = None
 
-    if source_type == 'local':
-        # 处理本地路径的逻辑
+    # Handling NAS and MinIO sources
+    if source_type == 'nas':
         image_url = image_url.replace(HIDDEN_PATH, "")
         print('image_url', image_url)
+        sys.stdout.flush()
+
         if os.path.isabs(image_url):
-            # 处理本地文件
             if os.path.exists(image_url):
                 image_path = image_url
             else:
                 return jsonify({'error': 'File not found on server'}), 404
         else:
             response = requests.get(image_url)
-            # 从URL中解析出文件名，进而得到文件扩展名
             parsed_url = urlparse(image_url)
             print('parsed_url', parsed_url)
-            _, file_ext = os.path.splitext(parsed_url.path)
+            sys.stdout.flush()
 
-            # 确保文件扩展名以"."开始，且不为空。如果为空，默认为.jpg
+            _, file_ext = os.path.splitext(parsed_url.path)
             if not file_ext.startswith('.'):
-                file_ext = '.jpg'  # 默认后缀，如果无法从URL中获取扩展名
+                file_ext = '.jpg'
 
             if response.status_code == 200:
                 with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as temp_file:
@@ -104,7 +135,6 @@ def ocr():
             print(f"Image exists at {image_path}")
             print(f"File size: {os.path.getsize(image_path)} bytes")
         else:
-            print(f"Image file does not exist at {image_path}")
             return jsonify({'error': 'Image file not found'}), 404
 
     try:
@@ -114,6 +144,7 @@ def ocr():
 
         height, width = image.shape[:2]
         print(f'Image dimension: {width}x{height}')
+        sys.stdout.flush()
 
         result, predict_time = process_images(
             text_sys,
@@ -125,10 +156,22 @@ def ocr():
 
         time2 = time.time()
         print(f'OCR指令执行时间： {time2 - time1}秒')
+        sys.stdout.flush()
 
         parsed_results = parse_ocr_results(result)
+        if not parsed_results or 'results' not in parsed_results[0] or not parsed_results[0]['results']:
+            return jsonify({
+                "width": width,
+                "height": height,
+                "boxes_num": 0,
+                "predict_time": predict_time,
+                "results": [],
+                "message": "No text detected in the image"
+            }), 200
+
         results = parsed_results[0]['results']
-        print('results', results)
+        confidence_threshold = 0.3
+        low_confidence = all(float(res_['score']) < confidence_threshold for res_ in results)
 
         ocr_json = {
             "width": width,
@@ -137,13 +180,55 @@ def ocr():
             "predict_time": predict_time,
             "results": results
         }
+
+        if low_confidence:
+            ocr_json["warning"] = "Low confidence in text detection, possible missed text"
+
         print('ocr_json', ocr_json)
+        sys.stdout.flush()
+
         return jsonify(ocr_json), 200
 
     except subprocess.CalledProcessError as e:
         print(f"Command failed with return code {e.returncode}")
         print(f"Error message: {e.stderr}")
+        sys.stdout.flush()
         return jsonify({'error': 'OCR processing failed', 'stderr': e.stderr}), 500
+
+    except Exception as e:
+        # If an error occurs, print out system resource usage
+        print("Exception occurred:", str(e))
+        print("Printing system resource usage:")
+
+        # Print CPU usage
+        cpu_usage = psutil.cpu_percent(interval=1)
+        print(f"CPU Usage: {cpu_usage}%")
+
+        # Print memory usage
+        memory_info = psutil.virtual_memory()
+        print(f"Memory Usage: {memory_info.percent}% used, {memory_info.available / (1024 ** 2):.2f} MB available")
+
+        # Print disk usage
+        disk_usage = psutil.disk_usage('/')
+        print(f"Disk Usage: {disk_usage.percent}% used, {disk_usage.free / (1024 ** 2):.2f} MB free")
+
+        # Print network statistics
+        net_io = psutil.net_io_counters()
+        print(f"Network Sent: {net_io.bytes_sent / (1024 ** 2):.2f} MB, Received: {net_io.bytes_recv / (1024 ** 2):.2f} MB")
+
+        sys.stdout.flush()
+
+        return jsonify({'error': 'Internal Server Error', 'message': str(e)}), 500
+
+
+@app.route('/current-time', methods=['GET'])
+def current_time():
+    """
+    测试方法：
+    http://192.168.1.109:4101/current-time
+    """
+    now = datetime.now()
+    return jsonify({'current_time': now.strftime("%Y-%m-%d %H:%M:%S")}), 200
 
 
 @app.route('/fetch-images-from-document', methods=['POST'])
