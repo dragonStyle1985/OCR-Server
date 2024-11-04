@@ -74,12 +74,12 @@ def process_images(
     return save_results, predict_time
 
 
-def get_image_from_minio(image_url):
+def get_image_from_minio(image_url, config_dict):
     # 初始化 MinIO 客户端
     minio_client = Minio(
-        f'{MINIO_SERVER_IP}:{MINIO_PORT}',  # MinIO 服务的地址
-        access_key=MINIO_ACCESS_KEY,
-        secret_key=MINIO_SECRET_KEY,
+        f"{config_dict['MINIO_SERVER_IP']}:{config_dict['MINIO_SERVER_IP']}",  # MinIO 服务的地址
+        access_key=config_dict['MINIO_SERVER_IP'],
+        secret_key=config_dict['MINIO_SERVER_IP'],
         secure=False  # 根据你的 MinIO 配置设置为 True 或 False
     )
 

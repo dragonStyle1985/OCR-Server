@@ -16,13 +16,33 @@ RUN echo "deb http://deb.debian.org/debian bookworm main" > /etc/apt/sources.lis
     apt-get install -y --no-install-recommends \
       build-essential \
       libgl1-mesa-glx \
-      libglib2.0-0 && \
+      libglib2.0-0 \
+      wget && \
     rm -rf /var/lib/apt/lists/*
+
+# Install libssl1.1 manually
+RUN wget http://ftp.de.debian.org/debian/pool/main/o/openssl/libssl1.1_1.1.1n-0+deb10u3_amd64.deb && \
+    dpkg -i libssl1.1_1.1.1n-0+deb10u3_amd64.deb && \
+    rm libssl1.1_1.1.1n-0+deb10u3_amd64.deb
 
 # Copy the requirements file into the container at /app
 COPY requirements.txt .
 
+# Remove paddlepaddle-gpu==2.5.0 from requirements.txt
+RUN sed -i '/paddlepaddle-gpu==2.5.0/d' requirements.txt
+
+# Install the remaining packages
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Define the build argument for GPU usage
+ARG USE_GPU=false
+
+# Conditionally install paddlepaddle-gpu or paddlepaddle based on the USE_GPU argument
+RUN if [ "$USE_GPU" = "true" ]; then \
+      pip install paddlepaddle-gpu==2.5.0; \
+    else \
+      pip install paddlepaddle==2.5.0; \
+    fi
 
 # Copy the current directory contents into the container at /usr/src/app
 COPY . .
@@ -30,16 +50,16 @@ COPY . .
 # Make port 4101 available to the world outside this container
 EXPOSE 4101
 
-# Define environment variable
+# Define environment variables
 ENV NAME Search-Server
+ENV EXPIRY_DATE="2026-09-01 11:30"
+ENV LD_LIBRARY_PATH=/usr/local/lib/python3.9/site-packages/paddle/fluid:$LD_LIBRARY_PATH
 
-ENV EXPIRY_DATE="2025-01-01 11:30"
-
+# 创建过期检查脚本
 RUN echo '#!/bin/bash\n\
 current_date=$(date +"%Y-%m-%d %H:%M")\n\
 echo "Current date and time in container: $current_date"\n\
 expiry_date="$EXPIRY_DATE"\n\
-# echo "Expiry date and time: $expiry_date"\n\
 if [[ "$current_date" > "$expiry_date" ]]; then\n\
     echo "This container has expired. Exiting..."\n\
     exit 1\n\

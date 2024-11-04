@@ -9,9 +9,10 @@ import psutil
 import requests
 import subprocess
 import tempfile
+
+import config
 import tools.infer.utility as utility
 
-from config import HIDDEN_PATH
 from datetime import datetime
 from docx import Document   # python-docx
 from flask import Flask, request, jsonify
@@ -21,6 +22,7 @@ from util import process_images, get_image_from_minio
 
 app = Flask(__name__)
 
+config_dict = config.load_config(config_file='local.yml')
 
 # 解析命令行参数
 args = utility.parse_args()
@@ -102,7 +104,7 @@ def ocr():
 
     # Handling NAS and MinIO sources
     if source_type == 'nas':
-        image_url = image_url.replace(HIDDEN_PATH, "")
+        image_url = image_url.replace(config_dict['HIDDEN_PATH'], "")
         print('image_url', image_url)
         sys.stdout.flush()
 
@@ -130,7 +132,7 @@ def ocr():
                 return jsonify({'error': 'Failed to download image from URL'}), response.status_code
     elif source_type == 'minio':
         print('image_url', image_url)
-        image_path = get_image_from_minio(image_url)
+        image_path = get_image_from_minio(image_url, config_dict)
         if image_path and os.path.exists(image_path):
             print(f"Image exists at {image_path}")
             print(f"File size: {os.path.getsize(image_path)} bytes")
@@ -280,4 +282,5 @@ def save_docx_images():
 
 
 if __name__ == '__main__':
+    print('Version', 3.1)
     app.run(host='0.0.0.0', port=4101)
