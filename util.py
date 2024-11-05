@@ -78,8 +78,8 @@ def get_image_from_minio(image_url, config_dict):
     # 初始化 MinIO 客户端
     minio_client = Minio(
         f"{config_dict['MINIO_SERVER_IP']}:{config_dict['MINIO_PORT']}",  # MinIO 服务的地址
-        access_key=config_dict['MINIO_SERVER_IP'],
-        secret_key=config_dict['MINIO_SERVER_IP'],
+        access_key=config_dict['MINIO_ACCESS_KEY'],
+        secret_key=config_dict['MINIO_SECRET_KEY'],
         secure=False  # 根据你的 MinIO 配置设置为 True 或 False
     )
 
