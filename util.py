@@ -88,7 +88,7 @@ def get_image_from_minio(image_url, config_dict):
     path_parts = parsed_url.path.lstrip('/').split('/')  # 去掉开头的斜杠，然后分割路径
 
     bucket_name = path_parts[0]  # 第一个路径片段为桶名称，即 'busi'
-    object_name = '/'.join(path_parts)  # 包括第一个路径部分 (busi)
+    object_name = '/'.join(path_parts[1:])  # 包括第一个路径部分 (busi)
 
     # 检查路径的正确性
     print(f"bucket_name: {bucket_name}")
